@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<app version="1">
+    <name>Rift Store</name>
+    <coder>RiftWii contributors</coder>
+    <version>1.0.0</version>
+    <short_description>Browse Wii homebrew</short_description>
+    <long_description>Browse the live Rift Store catalogue and install, update, or remove Wii homebrew on your SD card.</long_description>
+    <ahb_access/>
+</app>
