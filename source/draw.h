@@ -7,6 +7,8 @@
 
 bool DrawInit(void);
 int ScreenWidth(void);
+void DrawContentSpace(bool inset);
+void ScreenToContent(float *x, float *y);
 void DrawEnd(void);
 void Gradient(float x, float y, float width, float height, u32 top, u32 bottom);
 void Box(float x, float y, float width, float height, u32 color);

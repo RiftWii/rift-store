@@ -12,7 +12,8 @@ Rift Store fetches the catalogue each time it starts. Select **Settings > Refres
 
 | Wii Remote 1 | GameCube port 1 | Action |
 | --- | --- | --- |
-| Pointer or D-pad | Control Stick or D-pad | Navigate |
+| Point the Wii Remote | Control Stick | Move the pointer |
+| D-pad | D-pad | Move button focus |
 | A / B | A / B | Select / go back |
 | − / + | L / R | Change pages |
 | + on Categories | R on Categories | My Apps |
@@ -20,11 +21,11 @@ Rift Store fetches the catalogue each time it starts. Select **Settings > Refres
 | 1 / 2 on an app | X / Y on an app | Source / Remove |
 | HOME | Start | RiftWii, Homebrew Channel, or shut down |
 
-Only the first Wii Remote and GameCube port respond to controls. Wii Remotes 2–4 show muted pointers. The HOME menu waits for current SD work to finish safely. Shut Down fades to black, then requests full standby power-off.
+Only the first Wii Remote and GameCube port respond to controls. Wii Remotes 2–4 show muted pointers. When the GameCube stick moves the pointer, A selects the control under its fingertip. Press the D-pad to return to button focus. The HOME menu waits for current SD work to finish safely. Shut Down fades to black, then requests full standby power-off.
 
 ## Catalogue and installs
 
-- Banners load as their tiles become visible. Browse uses a 3×2 app grid at 4:3 or a 4×2 grid at 16:9. Search and the Classic/GameCube controller filter use the same catalogue.
+- Banners load as their tiles become visible. Browse uses a 3×2 app grid at 4:3 or a 4×2 grid at 16:9, following the Wii's Screen setting. Text and controls sit inside the 5% overscan margin. Search and the Classic/GameCube controller filter use the same catalogue.
 - App details list version, author, consoles, controllers, download size, and the project and package URLs. Short project URLs have a QR code. Wii-only packages ask before installation on Wii U in Wii mode.
 - My Apps detects existing programs and shared RiftWii receipts. Updates can be installed individually or queued under **Update all**. A manual installation asks before replacement. Formats other than ZIP or DOL link to their project for PC use.
 - Packages stream to SD with bounded buffers and are checked against the catalogue's size and SHA-256 before extraction. Installation validates the ZIP path plan, stages the files and receipt, and commits with rollback. Cancel stops the job before commit. Remove preserves changed files and offers to keep or erase remaining app data.

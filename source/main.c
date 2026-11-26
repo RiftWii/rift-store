@@ -25,6 +25,7 @@ typedef enum { HOME, LIST, DETAILS, SEARCH, SETTINGS, SOURCE, DOWNLOADS } Screen
 typedef enum { BY_CATEGORY, MY_APPS, SEARCH_RESULTS } ListMode;
 typedef enum { NONE, REPLACE, WII_ONLY, REMOVE, ERASE_DATA, UPDATE_ALL } Confirmation;
 typedef enum { IDLE, INSTALLING, REMOVING } Operation;
+typedef enum { BUTTON_FOCUS, WII_POINTER, GC_POINTER } CursorMode;
 
 typedef struct { const char *key, *name; } Category;
 static const Category categories[] = {
@@ -69,10 +70,12 @@ typedef struct {
     char query[33], message[192];
     u8 qr[33 * 33];
     unsigned qr_size;
-    bool pointer, pointer_navigation;
-    bool gc_stick_engaged;
+    CursorMode cursor;
+    bool ir_present, gc_pointer_started;
     unsigned connected_remotes;
     float pointer_x, pointer_y;
+    float ir_x, ir_y, gc_pointer_x, gc_pointer_y;
+    u32 last_input;
     u32 now, screen_started, focus_started, page_started;
     int slide_direction;
     bool exit_open, shutting_down, exit_pending;
@@ -135,13 +138,19 @@ static float AnimationRemaining(u32 now, u32 started, unsigned duration) {
     return remaining * remaining;
 }
 
-static void Chrome(u32 now) {
+static void DrawBackdrop(u32 now) {
     const float width = ScreenWidth();
     const float drift = sinf((now % 9000) * (6.2831853f / 9000)) * .18f;
     Gradient(0, 0, width, 480, 0xfcfefeff, 0xe4f0f5ff);
     Wave(81, 9, 28, 2.5f + drift, 0xf7ffffff, 0xcbeaf4ff);
     Wave(78, 13, 20, 2.2f + drift, 0xe5f8fcff, 0xa9e0f1ff);
     Wave(75, 14, 11, 2.1f + drift, 0xfeffffff, 0xc4ebf7ff);
+    Wave(431, 10, 76, 0.5f, 0x90cbdeff, 0xd3edf5ff);
+    Wave(434, 10, 76, 0.5f, 0xfcffffff, 0xb3d6e2ff);
+}
+
+static void DrawHeader(void) {
+    const float width = ScreenWidth();
     Brand(32, 18);
     Text("Wii homebrew", 96, 85, 17, 165, sub);
     Panel(width - 193, 33, 161, 32, 16, 0x9bbfceff, 0x81a8baff);
@@ -150,8 +159,6 @@ static void Chrome(u32 now) {
                          LiveCatalogueState() == CATALOGUE_FAILED ? "Unavailable" :
                          LiveOffline() ? "Offline catalogue" : "Online catalogue";
     Center(status, width - 112.5f, 55, 17, 149, sub);
-    Wave(431, 10, 76, 0.5f, 0x90cbdeff, 0xd3edf5ff);
-    Wave(434, 10, 76, 0.5f, 0xfcffffff, 0xb3d6e2ff);
 }
 
 static float HintWidth(const char *button, const char *label) {
@@ -319,7 +326,7 @@ static bool OverPageArrow(const Store *store, bool forward) {
 static void PageArrow(const Store *store, bool forward, bool available) {
     const float x = PageArrowX(forward);
     const float y = PAGE_ARROW_TOP;
-    const bool hovered = available && store->pointer && store->pointer_navigation && OverPageArrow(store, forward);
+    const bool hovered = available && store->cursor != BUTTON_FOCUS && OverPageArrow(store, forward);
     if (hovered) Panel(x - 2, y - 2, PAGE_ARROW_WIDTH + 4, PAGE_ARROW_HEIGHT + 4, 15, 0x8ee1f8ff, 0xc9f2fcff);
     Panel(x, y + 2, PAGE_ARROW_WIDTH, PAGE_ARROW_HEIGHT, 13, 0x7b98a847, 0x7b98a847);
     Panel(x, y, PAGE_ARROW_WIDTH, PAGE_ARROW_HEIGHT, 13, available ? 0x6bcce9ff : 0xc2d7dfff,
@@ -681,7 +688,6 @@ static void DrawConfirmation(const Store *store) {
         case NONE: return;
     }
     const float left = (ScreenWidth() - QUESTION_WIDTH) / 2.0f;
-    Box(0, 0, ScreenWidth(), 480, 0x19344880);
     Card(left, QUESTION_Y, QUESTION_WIDTH, QUESTION_HEIGHT, false, 0);
     Center(title, ScreenWidth() / 2.0f, 181, 28, QUESTION_WIDTH - 40, ink);
     Paragraph(description, left + 34, 219, 19, QUESTION_WIDTH - 68, 2, sub);
@@ -705,7 +711,6 @@ static void DrawExitMenu(const Store *store) {
     static const char *const names[] = {"RiftWii", "Homebrew Channel", "Shut Down", "Back to Store"};
     const float center = ScreenWidth() / 2.0f;
     const float left = center - EXIT_MENU_WIDTH / 2.0f;
-    Box(0, 0, ScreenWidth(), 480, 0x19344880);
     Panel(left, EXIT_MENU_Y + 5, EXIT_MENU_WIDTH, EXIT_MENU_HEIGHT, 23, 0x21384f74, 0x21384f74);
     Panel(left, EXIT_MENU_Y, EXIT_MENU_WIDTH, EXIT_MENU_HEIGHT, 22, 0x88d8eeff, 0x4896b2ff);
     Panel(left + 2, EXIT_MENU_Y + 2, EXIT_MENU_WIDTH - 4, EXIT_MENU_HEIGHT - 4, 20, white, 0xe6f5faff);
@@ -732,12 +737,20 @@ static void DrawOtherPointers(const Store *store) {
     static const u32 tint[] = {0xc9a5acaa, 0xa6c3b3aa, 0xcac29eaa};
     for (s32 channel = WPAD_CHAN_1; channel <= WPAD_CHAN_3; ++channel) {
         const WPADData *data = InfraredData(store, channel);
-        if (data) DrawPointer(data->ir.x, data->ir.y, tint[channel - WPAD_CHAN_1]);
+        if (data) {
+            float x = data->ir.x;
+            float y = data->ir.y;
+            ScreenToContent(&x, &y);
+            DrawPointer(x, y, tint[channel - WPAD_CHAN_1]);
+        }
     }
 }
 
 static void Render(const Store *store) {
-    Chrome(store->preferences & PREF_LOW_MOTION ? 0 : store->now);
+    DrawContentSpace(false);
+    DrawBackdrop(store->preferences & PREF_LOW_MOTION ? 0 : store->now);
+    DrawContentSpace(true);
+    DrawHeader();
     switch (store->screen) {
         case HOME: DrawHome(store); break;
         case LIST: DrawList(store); break;
@@ -751,12 +764,18 @@ static void Render(const Store *store) {
         const float fade = AnimationRemaining(store->now, store->screen_started, SCREEN_FADE_MS);
         if (fade > 0) Box(0, 120, ScreenWidth(), 300, 0xf6fcff00 | (u32)(145 * fade));
     }
-    if (store->exit_open) DrawExitMenu(store);
-    else if (store->confirmation != NONE) DrawConfirmation(store);
+    if (store->exit_open || store->confirmation != NONE) {
+        DrawContentSpace(false);
+        Box(0, 0, ScreenWidth(), 480, 0x19344880);
+        DrawContentSpace(true);
+        if (store->exit_open) DrawExitMenu(store);
+        else DrawConfirmation(store);
+    }
     DrawOtherPointers(store);
-    if (store->pointer && store->pointer_navigation) DrawPointer(store->pointer_x, store->pointer_y, white);
+    if (store->cursor != BUTTON_FOCUS) DrawPointer(store->pointer_x, store->pointer_y, white);
     if (store->shutting_down) {
         const float fade = 1 - AnimationRemaining(store->now, store->shutdown_started, SHUTDOWN_FADE_MS);
+        DrawContentSpace(false);
         Box(0, 0, ScreenWidth(), 480, (u32)(255 * fade));
     }
     DrawEnd();
@@ -1202,14 +1221,28 @@ static unsigned PointerAction(Store *store) {
     return 0;
 }
 
-static unsigned GcStickMove(Store *store, bool connected) {
-    const int x = connected ? PAD_StickX(0) : 0;
-    const int y = connected ? PAD_StickY(0) : 0;
-    if (abs(x) < 26 && abs(y) < 26) store->gc_stick_engaged = false;
-    if (store->gc_stick_engaged || (abs(x) < 44 && abs(y) < 44)) return 0;
-    store->gc_stick_engaged = true;
-    if (abs(x) > abs(y)) return x < 0 ? INPUT_LEFT : INPUT_RIGHT;
-    return y < 0 ? INPUT_DOWN : INPUT_UP;
+static bool MoveGcPointer(Store *store, u32 elapsed) {
+    const float dx = PAD_StickX(0);
+    const float dy = -PAD_StickY(0);
+    const float length_squared = dx * dx + dy * dy;
+    if (length_squared <= 16 * 16) return false;
+    const float length = sqrtf(length_squared);
+    const float strength = fminf(1, (length - 16) / 64);
+    const float speed = 70 + 830 * strength * strength;
+    const float movement = speed * elapsed / (1000 * length);
+
+    if (!store->gc_pointer_started) {
+        store->gc_pointer_x = store->cursor == WII_POINTER ? store->pointer_x : ScreenWidth() / 2.0f;
+        store->gc_pointer_y = store->cursor == WII_POINTER ? store->pointer_y : 240;
+        store->gc_pointer_started = true;
+    }
+    // Clamp the fingertip to the visible title-safe frame, in layout units.
+    float left = ScreenWidth() * .05f;
+    float top = 24;
+    ScreenToContent(&left, &top);
+    store->gc_pointer_x = fminf(ScreenWidth() - left, fmaxf(left, store->gc_pointer_x + dx * movement));
+    store->gc_pointer_y = fminf(480 - top, fmaxf(top, store->gc_pointer_y + dy * movement));
+    return true;
 }
 
 static void ConfigureRemote(s32 channel) {
@@ -1240,9 +1273,9 @@ static unsigned ReadInput(Store *store) {
     const u32 remote = (store->connected_remotes & 1u) ? WPAD_ButtonsDown(WPAD_CHAN_0) : 0;
     const u16 pad = gc_connected ? PAD_ButtonsDown(0) : 0;
     const WPADData *data = InfraredData(store, WPAD_CHAN_0);
-    const bool had_pointer = store->pointer;
-    store->pointer = data != NULL;
-    unsigned keys = GcStickMove(store, gc_connected);
+    const u32 elapsed = store->now - store->last_input;
+    store->last_input = store->now;
+    unsigned keys = 0;
     if ((remote & (WPAD_BUTTON_UP | WPAD_CLASSIC_BUTTON_UP)) || (pad & PAD_BUTTON_UP)) keys |= INPUT_UP;
     if ((remote & (WPAD_BUTTON_DOWN | WPAD_CLASSIC_BUTTON_DOWN)) || (pad & PAD_BUTTON_DOWN)) keys |= INPUT_DOWN;
     if ((remote & (WPAD_BUTTON_LEFT | WPAD_CLASSIC_BUTTON_LEFT)) || (pad & PAD_BUTTON_LEFT)) keys |= INPUT_LEFT;
@@ -1253,21 +1286,40 @@ static unsigned ReadInput(Store *store) {
     if ((remote & (WPAD_BUTTON_1 | WPAD_CLASSIC_BUTTON_X)) || (pad & PAD_BUTTON_X)) keys |= INPUT_ONE;
     if ((remote & (WPAD_BUTTON_2 | WPAD_CLASSIC_BUTTON_Y)) || (pad & PAD_BUTTON_Y)) keys |= INPUT_TWO;
     if ((remote & (WPAD_BUTTON_HOME | WPAD_CLASSIC_BUTTON_HOME)) || (pad & PAD_BUTTON_START)) keys |= INPUT_HOME;
-    const bool pointing_a = remote & WPAD_BUTTON_A;
-    unsigned pointer_action = 0;
-    if (store->pointer) {
-        const float dx = store->pointer_x - data->ir.x;
-        const float dy = store->pointer_y - data->ir.y;
-        store->pointer_x = data->ir.x;
-        store->pointer_y = data->ir.y;
-        if (!had_pointer || dx * dx + dy * dy >= 9) store->pointer_navigation = true;
-        if (pad || (keys & (INPUT_UP | INPUT_DOWN | INPUT_LEFT | INPUT_RIGHT | INPUT_PLUS | INPUT_MINUS))) {
-            store->pointer_navigation = false;
-        }
-        if (store->pointer_navigation) pointer_action = PointerAction(store);
+    const bool remote_a = remote & WPAD_BUTTON_A;
+    bool ir_active = false;
+    if (data) {
+        const float dx = store->ir_x - data->ir.x;
+        const float dy = store->ir_y - data->ir.y;
+        ir_active = !store->ir_present || dx * dx + dy * dy >= 16 ||
+                    (remote_a && store->cursor == GC_POINTER);
+        store->ir_x = data->ir.x;
+        store->ir_y = data->ir.y;
     }
-    if (pointing_a) keys |= store->pointer && store->pointer_navigation ? pointer_action : INPUT_A;
-    if ((remote & WPAD_CLASSIC_BUTTON_A) || (pad & PAD_BUTTON_A)) keys |= INPUT_A;
+    store->ir_present = data != NULL;
+
+    if (keys & (INPUT_UP | INPUT_DOWN | INPUT_LEFT | INPUT_RIGHT)) {
+        store->cursor = BUTTON_FOCUS;
+    } else if (gc_connected && MoveGcPointer(store, elapsed > 34 ? 34 : elapsed)) {
+        store->cursor = GC_POINTER;
+    } else if (ir_active && (!(pad & PAD_BUTTON_A) || store->cursor != GC_POINTER)) {
+        store->cursor = WII_POINTER;
+    } else if ((store->cursor == WII_POINTER && !data) || (store->cursor == GC_POINTER && !gc_connected)) {
+        store->cursor = BUTTON_FOCUS;
+    }
+
+    if (store->cursor == WII_POINTER) {
+        store->pointer_x = store->ir_x;
+        store->pointer_y = store->ir_y;
+        ScreenToContent(&store->pointer_x, &store->pointer_y);
+    } else if (store->cursor == GC_POINTER) {
+        store->pointer_x = store->gc_pointer_x;
+        store->pointer_y = store->gc_pointer_y;
+    }
+    const unsigned action = store->cursor == BUTTON_FOCUS ? 0 : PointerAction(store);
+    if (remote_a) keys |= store->cursor == WII_POINTER ? action : INPUT_A;
+    if (pad & PAD_BUTTON_A) keys |= store->cursor == GC_POINTER ? action : INPUT_A;
+    if (remote & WPAD_CLASSIC_BUTTON_A) keys |= INPUT_A;
     return keys;
 }
 

@@ -22,13 +22,20 @@ static void *framebuffers[2];
 static unsigned front;
 static int screen_width;
 static bool interlaced;
+static Mtx44 frame_projection, content_projection;
+static const float content_scale = 0.94f;
 static GXTexObj font_texture, brand_texture, category_texture, pointer_texture;
 static u8 fifo[128 * 1024] ATTRIBUTE_ALIGN(32);
 static const float curve_x[] = {1.0f, 0.9659f, 0.8660f, 0.7071f, 0.5000f, 0.2588f, 0.0f};
 
 bool DrawInit(void) {
     VIDEO_Init();
-    GXRModeObj *mode = VIDEO_GetPreferredMode(NULL);
+    GXRModeObj video_mode;
+    GXRModeObj *mode = VIDEO_GetPreferredMode(&video_mode);
+    // Center the nominal active picture. VI scales the 640-pixel XFB into
+    // this window, and the Wii's Screen setting selects the anamorphic layout.
+    mode->viWidth = 702;
+    mode->viXOrigin = (VI_MAX_WIDTH_NTSC - mode->viWidth) / 2;
     for (unsigned index = 0; index < 2; ++index) {
         void *buffer = SYS_AllocateFramebuffer(mode);
         if (!buffer) return false;
@@ -63,9 +70,14 @@ bool DrawInit(void) {
     GX_SetNumTevStages(1);
     GX_SetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY);
 
-    Mtx44 projection;
-    guOrtho(projection, 0, 480, 0, screen_width, 0, 100);
-    GX_LoadProjectionMtx(projection, GX_ORTHOGRAPHIC);
+    guOrtho(frame_projection, 0, 480, 0, screen_width, 0, 100);
+    memcpy(content_projection, frame_projection, sizeof(content_projection));
+    // Keep the existing layout and its outer margins inside the TV-safe area.
+    for (unsigned column = 0; column < 4; ++column) {
+        content_projection[0][column] *= content_scale;
+        content_projection[1][column] *= content_scale;
+    }
+    DrawContentSpace(false);
     Mtx model;
     guMtxIdentity(model);
     GX_LoadPosMtxImm(model, GX_PNMTX0);
@@ -88,6 +100,16 @@ bool DrawInit(void) {
 }
 
 int ScreenWidth(void) { return screen_width; }
+
+void DrawContentSpace(bool inset) {
+    GX_LoadProjectionMtx(inset ? content_projection : frame_projection, GX_ORTHOGRAPHIC);
+}
+
+void ScreenToContent(float *x, float *y) {
+    const float center_x = screen_width / 2.0f;
+    *x = center_x + (*x - center_x) / content_scale;
+    *y = 240 + (*y - 240) / content_scale;
+}
 
 void DrawEnd(void) {
     front ^= 1;
