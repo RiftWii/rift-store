@@ -2,6 +2,13 @@
 
 Rift Store is a standalone Wii homebrew app. Browse the live [RiftWii catalogue](https://riftwii.com/apps/apps.json), search for homebrew, and install, update, open, or remove apps on an SD card.
 
+![Rift Store's widescreen Games catalogue with horizontal app banners and the Wii-style pointer](docs/screenshots/catalogue.png)
+
+<p>
+  <a href="docs/screenshots/categories.png"><img src="docs/screenshots/categories.png" alt="Rift Store category selection at 16:9" width="384"></a>
+  <a href="docs/screenshots/app-details.png"><img src="docs/screenshots/app-details.png" alt="Blue Box Dodge app details in Rift Store at 4:3" width="288"></a>
+</p>
+
 ## Install
 
 Extract the distribution ZIP to the root of the SD card. Open **Rift Store** in the Homebrew Channel. The executable is `sd:/apps/rift-store/boot.dol`.
